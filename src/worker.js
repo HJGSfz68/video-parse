@@ -94,10 +94,175 @@ function json(data, status = 200) {
   });
 }
 
+const PLATFORMS = [
+  { id: 'tencent', name: '腾讯视频' },
+  { id: 'iqiyi', name: '爱奇艺' },
+  { id: 'youku', name: '优酷' },
+  { id: 'mgtv', name: '芒果TV' },
+  { id: 'bilibili', name: '哔哩哔哩' },
+];
+
+async function searchPlatform(platform, keyword) {
+  const kw = encodeURIComponent(keyword);
+  const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+
+  async function getJson(url, extraHeaders = {}) {
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': ua, 'Accept': 'application/json', ...extraHeaders },
+    });
+    const text = await resp.text();
+    try { return JSON.parse(text); } catch (e) { return text; }
+  }
+
+  function stripHtml(s) {
+    return String(s || '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+  }
+
+  switch (platform) {
+    case 'bilibili': {
+      let d = null;
+      for (let i = 0; i < 3; i++) {
+        try {
+          const resp = await fetch(`https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=${kw}`, {
+            headers: { 'User-Agent': ua, 'Referer': 'https://www.bilibili.com/', 'Accept': 'application/json, text/plain, */*' },
+          });
+          const j = await resp.json();
+          if (j && j.data && j.data.result) { d = j; break; }
+        } catch (e) {}
+      }
+      const list = (d && d.data && d.data.result) || [];
+      return list.slice(0, 10).map(v => ({
+        title: stripHtml(v.title),
+        url: v.arcurl || ('https://www.bilibili.com/video/' + v.bvid),
+        source: v.author || '',
+      }));
+    }
+    case 'tencent': {
+      let d = null;
+      for (let i = 0; i < 5; i++) {
+        try {
+          const resp = await fetch('https://pbaccess.video.qq.com/trpc.videosearch.mobile_search.MultiTerminalSearch/MbSearch?vversion_platform=2&query=' + kw, {
+            method: 'POST',
+            headers: { 'User-Agent': ua, 'Content-Type': 'application/json', 'Referer': 'https://v.qq.com/x/search/', 'Origin': 'https://v.qq.com' },
+            body: JSON.stringify({ query: keyword, scene: 'search', offset: 0, limit: 10, queryId: Date.now() + 'a', video_platform: 2, adult: 1, is_hot: 0 }),
+          });
+          const j = await resp.json();
+          if (j.data && j.data.normalList && j.data.normalList.itemList) { d = j; break; }
+        } catch (e) {}
+      }
+      if (!d) return [];
+      const items = d.data.normalList.itemList || [];
+      const out = [];
+      for (const it of items.slice(0, 10)) {
+        const doc = it.doc || {};
+        const vi = it.videoInfo || {};
+        const title = stripHtml(vi.title);
+        if (!title) continue;
+        const cid = doc.id || '';
+        out.push({ title, url: 'https://v.qq.com/x/cover/' + cid + '.html', source: vi.typeName || '' });
+      }
+      return out;
+    }
+    case 'iqiyi': {
+      let d = null, err = '';
+      for (const url of [
+        `https://search.video.iqiyi.com/o?if=search&pageNum=1&pageSize=10&q=${kw}`,
+        `https://search.video.iqiyi.com/o?if=ctr&pageNum=1&pageSize=10&q=${kw}`,
+      ]) {
+        try {
+          const resp = await fetch(url, { headers: { 'User-Agent': ua, 'Accept': 'application/json, text/plain, */*', 'Referer': 'https://www.iqiyi.com/' } });
+          const text = await resp.text();
+          try { d = JSON.parse(text); } catch (e) { err = '非JSON响应'; continue; }
+          if (d && d.code === 'A00000' && Array.isArray(d.data)) break;
+          err = JSON.stringify(d).slice(0, 120);
+        } catch (e) { err = e.message; }
+      }
+      if (!d) throw new Error('爱奇艺搜索失败: ' + err);
+      const items = d.data || [];
+      return items.slice(0, 10).map(v => {
+        const vi = v.videoInfo || v;
+        return {
+          title: stripHtml(vi.title || vi.name || v.name),
+          url: vi.url || v.url || v.playUrl || ('https://www.iqiyi.com/v_' + (vi.vid || v.vid || '')),
+          source: stripHtml(vi.channelName || ''),
+        };
+      });
+    }
+    case 'youku': {
+      let d = null, err = '';
+      for (const url of [
+        `https://search.youku.com/api/youku/search/query?keyword=${kw}&type=all&page=1&count=10`,
+        `https://s.youku.com/api/youku/search/query?keyword=${kw}&type=all&page=1&count=10`,
+      ]) {
+        try {
+          const resp = await fetch(url, { headers: { 'User-Agent': ua, 'Accept': 'application/json, text/plain, */*', 'Referer': 'https://so.youku.com/' }, redirect: 'follow' });
+          const text = await resp.text();
+          try { d = JSON.parse(text); } catch (e) { err = '非JSON响应'; continue; }
+          if (d && (d.data || d.results)) break;
+          err = JSON.stringify(d).slice(0, 120);
+        } catch (e) { err = e.message; }
+      }
+      if (!d) throw new Error('优酷搜索失败: ' + err);
+      const list = (d.data || d.results || []);
+      const items = Array.isArray(list) ? list : (list.videoList || []);
+      return items.slice(0, 10).map(v => ({
+        title: stripHtml(v.title || v.name),
+        url: v.url || v.playUrl || v.videoUrl || ('https://v.youku.com/v_show/id_' + (v.id || v.vid || '') + '.html'),
+        source: '',
+      }));
+    }
+    case 'mgtv': {
+      let d = null, err = '';
+      for (const url of [
+        `https://mobileso.bz.mgtv.com/so/kd?site=web&keyword=${kw}&count=10`,
+        `https://so.mgtv.com/so/kd?site=web&keyword=${kw}&count=10`,
+      ]) {
+        try {
+          const resp = await fetch(url, { headers: { 'User-Agent': ua, 'Accept': 'application/json, text/plain, */*', 'Referer': 'https://so.mgtv.com/' } });
+          const text = await resp.text();
+          try { d = JSON.parse(text); } catch (e) { err = '非JSON响应(可能需JS渲染)'; continue; }
+          if (d && (d.data || d.code === 200)) break;
+          err = JSON.stringify(d).slice(0, 120);
+        } catch (e) { err = e.message; }
+      }
+      if (!d) throw new Error('芒果搜索失败: ' + err);
+      const list = (d.data && (d.data.videos || d.data.list || d.data.result)) || [];
+      return list.slice(0, 10).map(v => ({
+        title: stripHtml(v.name || v.title),
+        url: v.url || v.playUrl || ('https://www.mgtv.com/b/' + (v.id || '')),
+        source: '',
+      }));
+    }
+    default:
+      throw new Error('不支持的平台: ' + platform);
+  }
+}
+
 export default {
   async fetch(request) {
     const url = new URL(request.url);
     const path = url.pathname;
+
+    if (path === '/api/platforms') {
+      return json({ code: 0, message: 'success', data: PLATFORMS });
+    }
+
+    if (path === '/api/search') {
+      const platform = url.searchParams.get('platform');
+      const keyword = url.searchParams.get('keyword');
+      if (!platform || !keyword) {
+        return json({ code: 1, message: '参数 platform 和 keyword 不能为空' });
+      }
+      try {
+        const data = await searchPlatform(platform, keyword);
+        if (!data || data.length === 0) {
+          return json({ code: 2, message: '未搜索到结果' });
+        }
+        return json({ code: 0, message: 'success', data: data.map((v, i) => ({ id: i + 1, ...v })) });
+      } catch (e) {
+        return json({ code: 1, message: '搜索失败: ' + e.message });
+      }
+    }
 
     if (path === '/api/sources') {
       return json({
