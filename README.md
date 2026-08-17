@@ -2,6 +2,46 @@
 
 基于 Cloudflare Workers 的视频解析聚合服务，聚合了全网多个免费解析接口。
 
+## 手动部署
+
+### 方式一：Cloudflare Dashboard 网页部署（无需命令行）
+
+1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)，点击左侧菜单「Workers 和 Pages」
+2. 点击「创建」→「创建 Worker」
+3. 输入 Worker 名称（如 `video-parse`），点击「部署」
+4. 部署完成后点击「编辑代码」
+5. 打开 [src/worker.js](src/worker.js)，复制全部代码，粘贴替换到在线编辑器中
+6. 点击右上角「部署」，确认后即可生效
+
+部署完成后即可通过 `https://video-parse.<你的子域>.workers.dev` 访问。
+
+### 方式二：本地命令行部署（需要 Node.js）
+
+1. 克隆仓库：
+
+```bash
+git clone https://github.com/HJGSfz68/video-parse.git
+cd video-parse
+```
+
+2. 安装依赖：
+
+```bash
+npm install
+```
+
+3. 登录 Cloudflare：
+
+```bash
+npx wrangler login
+```
+
+4. 部署：
+
+```bash
+npm run deploy
+```
+
 ## 一键部署
 
 [![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/HJGSfz68/video-parse)
@@ -68,10 +108,8 @@ npx wrangler deploy
 
 ```
 ├── wrangler.toml        # Cloudflare Workers 配置
-├── src/
-│   └── worker.js        # Worker 脚本（含 API + 解析源列表）
-└── public/
-    └── index.html       # 前端页面
+└── src/
+    └── worker.js        # Worker 脚本（含 API + 解析源列表 + 前端页面）
 ```
 
 ## 免责声明
