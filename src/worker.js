@@ -16,7 +16,6 @@ const videoParseList = [
   { name: "夜幕", type: "1,3", url: "https://www.yemu.xyz/?url=" },
   { name: "冰豆", type: "1,3", url: "https://bd.jx.cn/?url=" },
   { name: "Qianqi", type: "1,3", url: "https://api.qianqi.net/vip/?url=" },
-  { name: "52jiexi", type: "1,3", url: "https://api.52jiexi.top/?url=" },
   { name: "attakids", type: "1,3", url: "https://jsap.attakids.com/?url=" },
   { name: "xymav", type: "1,3", url: "https://www.xymav.com/?url=" },
   { name: "ckmov", type: "1,3", url: "https://www.ckmov.com/?url=" },
@@ -36,38 +35,65 @@ const INDEX_HTML = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#000">
 <title>视频解析</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { width: 100%; height: 100%; background: #000; overflow: hidden; }
+body { -webkit-tap-highlight-color: transparent; }
+
+#topBar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  display: flex; align-items: center; gap: 8px;
+  padding: max(10px, env(safe-area-inset-top)) 10px 10px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.75), transparent);
+  pointer-events: none;
+}
+#topBar > * { pointer-events: auto; }
 
 #sourceSelect {
-  position: fixed; top: 12px; left: 12px; z-index: 100;
-  padding: 5px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2);
-  background: rgba(30,30,50,0.85); color: #e0e0e0; font-size: 12px;
-  outline: none; cursor: pointer; max-width: 180px;
-  backdrop-filter: blur(4px);
+  flex: 0 1 auto; min-width: 0; max-width: 45vw;
+  padding: 8px 10px; border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.25);
+  background: rgba(25,28,45,0.92); color: #e8e8f0; font-size: 13px;
+  outline: none; cursor: pointer; backdrop-filter: blur(6px);
 }
 #sourceSelect:focus { border-color: #2ea3f0; }
-#sourceSelect option { background: #3f4149; color: #e0e0e0; }
+#sourceSelect option { background: #2a2d3a; color: #e8e8f0; }
+
+#curSource {
+  flex: 1 1 auto; min-width: 0; max-width: 50vw;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: #9ecbff; font-size: 12px; text-align: right;
+}
 
 #playerFrame { width: 100%; height: 100%; border: none; display: block; }
-#placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; color: #444; font-size: 14px; }
+#placeholder {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  width: 100%; height: 100%; color: #555; font-size: 14px; gap: 8px;
+}
+#placeholder small { color: #444; font-size: 12px; }
 </style>
 </head>
 <body>
 
-<select id="sourceSelect"></select>
+<div id="topBar">
+  <select id="sourceSelect"></select>
+  <span id="curSource"></span>
+</div>
 <iframe id="playerFrame" allowfullscreen allow="autoplay;fullscreen;encrypted-media;picture-in-picture"></iframe>
-<div id="placeholder">请在 URL 后添加 ?url= 参数</div>
+<div id="placeholder">请在 URL 后添加 ?url= 参数<small>手机端点击视频可全屏播放</small></div>
 
 <script>
 const src = new URLSearchParams(location.search).get('url');
+const sel = document.getElementById('sourceSelect');
+const cur = document.getElementById('curSource');
+const frame = document.getElementById('playerFrame');
+const ph = document.getElementById('placeholder');
 
 fetch('/api/sources').then(r => r.json()).then(result => {
   if (result.code !== 0) return;
-  const sel = document.getElementById('sourceSelect');
   sel.innerHTML = result.data.map((s, i) =>
     '<option value="' + i + '">' + s.name + '</option>'
   ).join('');
@@ -75,14 +101,20 @@ fetch('/api/sources').then(r => r.json()).then(result => {
 });
 
 function play() {
-  const url = src, sourceId = document.getElementById('sourceSelect').value;
-  document.getElementById('placeholder').style.display = 'none';
+  const url = src, sourceId = sel.value;
+  ph.style.display = 'none';
   fetch('/api/play?url=' + encodeURIComponent(url) + '&source=' + sourceId).then(r => r.json()).then(result => {
-    if (result.code === 0) document.getElementById('playerFrame').src = result.data.parseUrl;
+    if (result.code === 0) {
+      frame.src = result.data.parseUrl;
+      sel.value = String(result.data.sourceId || sourceId);
+      cur.textContent = '当前解析源：' + result.data.source;
+    } else {
+      cur.textContent = result.message || '解析失败';
+    }
   });
 }
 
-document.getElementById('sourceSelect').addEventListener('change', () => { if (src) play(); });
+sel.addEventListener('change', () => { if (src) play(); });
 <\/script>
 </body>
 </html>`;
@@ -238,6 +270,21 @@ async function searchPlatform(platform, keyword) {
   }
 }
 
+// 腾讯 cover 专辑链接规范化为 x/page/{vid}.html（解析源对 page 链接支持更好）
+async function normalizeTencentUrl(u) {
+  const m = u.match(/v\.qq\.com\/x\/cover\/([a-z0-9]+)\.html/i);
+  if (!m) return u;
+  try {
+    const resp = await fetch(u, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126.0.0.0', 'Referer': 'https://v.qq.com/' },
+    });
+    const html = await resp.text();
+    const v = html.match(/"vid"\s*:\s*"([a-z0-9]+)"/i);
+    if (v && v[1]) return 'https://v.qq.com/x/page/' + v[1] + '.html';
+  } catch (e) {}
+  return u;
+}
+
 export default {
   async fetch(request) {
     const url = new URL(request.url);
@@ -279,11 +326,13 @@ export default {
         return json({ code: 1, message: '参数 url 不能为空' });
       }
       const idx = (!isNaN(source) && source >= 0 && source < videoParseList.length) ? source : 0;
-      const parseUrl = videoParseList[idx].url + encodeURIComponent(videoUrl);
+      // 腾讯 cover 专辑链接转换为 x/page 播放页，提高解析成功率
+      const normalized = await normalizeTencentUrl(videoUrl);
+      const parseUrl = videoParseList[idx].url + encodeURIComponent(normalized);
       return json({
         code: 0,
         message: 'success',
-        data: { source: videoParseList[idx].name, parseUrl },
+        data: { source: videoParseList[idx].name, parseUrl, normalized },
       });
     }
 
