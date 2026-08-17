@@ -32,6 +32,61 @@ const videoParseList = [
   { name: "m1907镜像 (带选集)", type: "1,2", url: "https://z1.im1907.top/?&jx=" },
 ];
 
+const INDEX_HTML = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>视频解析</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #000; overflow: hidden; }
+
+#sourceSelect {
+  position: fixed; top: 12px; left: 12px; z-index: 100;
+  padding: 5px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(30,30,50,0.85); color: #e0e0e0; font-size: 12px;
+  outline: none; cursor: pointer; max-width: 180px;
+  backdrop-filter: blur(4px);
+}
+#sourceSelect:focus { border-color: #2ea3f0; }
+#sourceSelect option { background: #3f4149; color: #e0e0e0; }
+
+#playerFrame { width: 100%; height: 100%; border: none; display: block; }
+#placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; color: #444; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<select id="sourceSelect"></select>
+<iframe id="playerFrame" allowfullscreen allow="autoplay;fullscreen;encrypted-media;picture-in-picture"></iframe>
+<div id="placeholder">请在 URL 后添加 ?url= 参数</div>
+
+<script>
+const src = new URLSearchParams(location.search).get('url');
+
+fetch('/api/sources').then(r => r.json()).then(result => {
+  if (result.code !== 0) return;
+  const sel = document.getElementById('sourceSelect');
+  sel.innerHTML = result.data.map((s, i) =>
+    '<option value="' + i + '">' + s.name + '</option>'
+  ).join('');
+  if (src) play();
+});
+
+function play() {
+  const url = src, sourceId = document.getElementById('sourceSelect').value;
+  document.getElementById('placeholder').style.display = 'none';
+  fetch('/api/play?url=' + encodeURIComponent(url) + '&source=' + sourceId).then(r => r.json()).then(result => {
+    if (result.code === 0) document.getElementById('playerFrame').src = result.data.parseUrl;
+  });
+}
+
+document.getElementById('sourceSelect').addEventListener('change', () => { if (src) play(); });
+<\/script>
+</body>
+</html>`;
+
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -64,6 +119,12 @@ export default {
         code: 0,
         message: 'success',
         data: { source: videoParseList[idx].name, parseUrl },
+      });
+    }
+
+    if (path === '/') {
+      return new Response(INDEX_HTML, {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
       });
     }
 
