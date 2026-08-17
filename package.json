@@ -1,0 +1,14 @@
+{
+  "name": "video-parse",
+  "version": "1.0.0",
+  "description": "全网VIP视频解析聚合 - Cloudflare Worker",
+  "main": "src/worker.js",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
